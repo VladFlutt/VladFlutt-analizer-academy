@@ -27,6 +27,13 @@ python3 -m http.server 8000
 
 New Project → импортировать репозиторий → Framework Preset **Other**, без команды сборки, Output Directory — корень. `vercel.json` уже в репозитории.
 
+## Деплой на Amvera или Layero
+
+В репозитории есть `Dockerfile` (nginx отдаёт статические файлы на порту 80) и `amvera.yml`.
+
+- **Amvera:** создайте приложение, подключите этот GitHub-репозиторий (или сделайте `git push` в репозиторий Amvera). Конфигурация возьмётся из `amvera.yml`, контейнер слушает порт 80.
+- **Layero:** создайте проект из GitHub-репозитория, тип сборки Dockerfile, порт 80.
+
 ## Структура
 
 ```
