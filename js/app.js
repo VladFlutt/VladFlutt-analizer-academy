@@ -3,6 +3,7 @@ import { renderMarkdown, splitLessons } from './md.js'
 import { TASKS, TASK_BY_ID } from './tasks.js'
 import { Analyzer, fmtFreq } from './analyzer.js'
 import { mountAnalyzer } from './panel.js'
+import { GLOSSARY, annotate, initTooltips } from './glossary.js'
 
 const root = document.getElementById('root')
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -50,7 +51,7 @@ function shuffle(arr, rnd = Math.random) {
 // ---------- каркас ----------
 let cleanup = []
 function shell(active, inner) {
-  const nav = [['#/', 'Курс', 'home'], ['#/tasks', 'Задания', 'tasks'], ['#/sim', 'Тренажёр', 'sim'], ['#/exam', 'Экзамен', 'exam'], ['#/results', 'Результаты', 'results']]
+  const nav = [['#/', 'Курс', 'home'], ['#/tasks', 'Задания', 'tasks'], ['#/sim', 'Тренажёр', 'sim'], ['#/exam', 'Экзамен', 'exam'], ['#/glossary', 'Словарь', 'glossary'], ['#/results', 'Результаты', 'results']]
   return `
   <header class="top">
     <a href="#/" class="brand"><span class="logo">FSL</span><span>Анализатор <b>Academy</b></span></a>
@@ -173,6 +174,7 @@ function gradeQuestions(form, qs, name = 'q') {
     const ex = fs.querySelector('.expl')
     ex.hidden = false
     ex.innerHTML = `${right ? '✓ Верно.' : `✗ Правильный ответ: <b>${esc(q.o[q.a])}</b>.`} ${esc(q.e)}`
+    annotate(ex)
   })
   return ok
 }
@@ -229,6 +231,7 @@ function bindTask(el, t, sim, { onResult, exam = false } = {}) {
     condEl.innerHTML = `<b>Условие:</b> ${esc(setup.text)}`
     checksEl.innerHTML = ''
     el.querySelector('form').reset()
+    if (!exam) annotate(el.querySelector('.tp-info'))
   }
   fresh()
   newBtn?.addEventListener('click', fresh)
@@ -474,6 +477,26 @@ async function resultsPage() {
   <div class="row"><button class="btn ghost" id="reset">Сбросить весь прогресс</button></div>`)
 }
 
+// ---------- словарь ----------
+function glossaryPage(id) {
+  const latin = (s) => /^[A-Za-z]/.test(s)
+  const items = GLOSSARY.slice().sort((a, b) => (latin(a.t) === latin(b.t) ? a.t.localeCompare(b.t, 'ru', { sensitivity: 'base' }) : latin(a.t) ? -1 : 1))
+  let letter = ''
+  const rows = items.map((g) => {
+    const L = g.t[0].toUpperCase()
+    const head = L !== letter ? `<h2 class="g-letter">${(letter = L)}</h2>` : ''
+    return `${head}<div class="g-item card${g.id === id ? ' hl' : ''}" id="g-${g.id}" data-s="${esc((g.t + ' ' + (g.full || '') + ' ' + g.d).toLowerCase())}">
+      <div class="g-term">${esc(g.t)}${g.full ? ` <span class="muted">— ${esc(g.full)}</span>` : ''}</div>
+      <div>${esc(g.d)}</div></div>`
+  }).join('')
+  return shell('glossary', `
+  <h1>Словарь терминов</h1>
+  <p class="lead">${GLOSSARY.length} терминов и сокращений, которые встречаются в курсе. В уроках, тестах и заданиях термины подчёркнуты пунктиром: наведите на них мышь или нажмите, чтобы увидеть объяснение.</p>
+  <input type="search" id="g-search" class="g-search" placeholder="Поиск: RBW, детектор, дБм…" aria-label="Поиск по словарю">
+  <div id="g-list">${rows}</div>
+  <p id="g-empty" class="muted" hidden>Ничего не найдено.</p>`)
+}
+
 function notFound() { return shell('', '<h1>Страница не найдена</h1><p><a href="#/">На главную</a></p>') }
 
 // ---------- маршрутизация ----------
@@ -491,9 +514,11 @@ async function render() {
   else if (page === 'sim') html = simPage()
   else if (page === 'exam') html = examPage()
   else if (page === 'results') html = await resultsPage()
+  else if (page === 'glossary') html = glossaryPage(a)
   else html = notFound()
   root.innerHTML = html
   if (!(page === 'exam' && exam && !exam.finished)) window.scrollTo(0, 0)
+  if (page === 'glossary' && a) document.getElementById('g-' + a)?.scrollIntoView({ block: 'center' })
   bind(page)
 }
 
@@ -506,6 +531,18 @@ function bind(page) {
   })
   document.querySelectorAll('[data-read]').forEach((el) => el.addEventListener('click', () => { store.data.lessons[el.dataset.read] = true; store.save() }))
   document.querySelectorAll('pre .copy').forEach((b) => b.addEventListener('click', () => { navigator.clipboard?.writeText(b.parentElement.querySelector('code').textContent); b.textContent = 'Скопировано' }))
+  if (page === 'module') annotate(document.querySelector('.lesson'))
+  if (page === 'quiz') { const seen = new Set(); document.querySelectorAll('#quiz legend').forEach((l) => annotate(l, seen)) }
+  if (page === 'glossary') {
+    const inp = document.getElementById('g-search')
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim().toLowerCase()
+      let n = 0
+      document.querySelectorAll('.g-item').forEach((el) => { const on = !q || el.dataset.s.includes(q); el.hidden = !on; n += on })
+      document.querySelectorAll('.g-letter').forEach((h) => { h.hidden = !!q })
+      document.getElementById('g-empty').hidden = n > 0
+    })
+  }
   if (page === 'quiz') {
     const form = document.getElementById('quiz')
     form.addEventListener('submit', (ev) => {
@@ -532,6 +569,7 @@ function bind(page) {
 }
 
 addEventListener('hashchange', render)
+initTooltips()
 render()
 
 // для отладки в консоли
