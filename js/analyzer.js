@@ -62,6 +62,7 @@ export function defaultState() {
     refFixed: null, phaseNoise: false,
     meas: null, chBw: 1.23e6, chSpacing: 1.25e6, obwPct: 99,
     input: 'rf',
+    dl1: null, dl2: null, limit: null,
   }
 }
 

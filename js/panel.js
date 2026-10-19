@@ -27,6 +27,7 @@ export function mountAnalyzer(root, opts = {}) {
   const a = opts.analyzer || new Analyzer()
   window.__fsl = a
   let menu = 'FREQ'
+  let lastMenu = 'FREQ'
   let stack = []
   let entry = null
   let buf = ''
@@ -116,6 +117,9 @@ export function mountAnalyzer(root, opts = {}) {
     chbw: () => ({ label: 'Channel Bandwidth', kind: 'freq', get: () => s().chBw, set: (v) => a.change((x) => { x.chBw = clamp(v, 100, 1e9) }, true), step: (d) => step125(s().chBw, d) }),
     chsp: () => ({ label: 'Channel Spacing', kind: 'freq', get: () => s().chSpacing, set: (v) => a.change((x) => { x.chSpacing = clamp(v, 100, 1e9) }, true), step: (d) => step125(s().chSpacing, d) }),
     obw: () => ({ label: '% Power Bandwidth', kind: 'num', get: () => s().obwPct, set: (v) => a.change((x) => { x.obwPct = clamp(v, 10, 99.9) }, true), step: (d) => s().obwPct + d * 0.1 }),
+    dl1: () => ({ label: 'Display Line 1', kind: 'level', get: () => s().dl1 ?? s().ref - 20, set: (v) => a.change((x) => { x.dl1 = v }, true), step: (d, f) => (s().dl1 ?? s().ref - 20) + d * (f ? 0.1 : 1) }),
+    dl2: () => ({ label: 'Display Line 2', kind: 'level', get: () => s().dl2 ?? s().ref - 40, set: (v) => a.change((x) => { x.dl2 = v }, true), step: (d, f) => (s().dl2 ?? s().ref - 40) + d * (f ? 0.1 : 1) }),
+    limit: () => ({ label: 'Upper Limit Line', kind: 'level', get: () => s().limit ?? s().ref - 10, set: (v) => a.change((x) => { x.limit = v }, true), step: (d, f) => (s().limit ?? s().ref - 10) + d * (f ? 0.1 : 1) }),
     trig: () => ({ label: 'Trigger Level %', kind: 'num', get: () => s().trigLevel, set: (v) => a.change((x) => { x.trigLevel = clamp(v, 0, 100) }, true), step: (d) => s().trigLevel + d }),
   }
 
@@ -294,6 +298,23 @@ export function mountAnalyzer(root, opts = {}) {
       { label: 'Channel Bandwidth', act: () => openEntry('chbw'), on: entry?.name === 'chbw' },
       { label: 'Adjust Settings', act: () => { a.adjustSettings(); toast('Span = 3 × полоса канала, RBW, VBW и RMS настроены') } },
     ] }),
+    LINES: () => ({ title: 'Lines', keys: [
+      { label: 'Display Line 1', act: () => lineKey('dl1', -20), on: s().dl1 != null },
+      { label: 'Display Line 2', act: () => lineKey('dl2', -40), on: s().dl2 != null },
+      { label: 'Upper Limit Line', act: () => lineKey('limit', -10), on: s().limit != null },
+      { label: 'All Lines Off', act: () => { a.change((x) => { x.dl1 = x.dl2 = x.limit = null }, true); closeEntry() } },
+    ] }),
+    FILE: () => ({ title: 'File', keys: [
+      { label: 'Save', sub: 'FSAVE' },
+      { label: 'Recall', sub: 'FRECALL' },
+      { label: 'Startup Recall On/Off', act: () => { if (!sets[0]) return toast('Сначала сохраните настройки в Set 1: FILE → Save → Set 1'); startup = !startup; storeSets(); toast(startup ? 'Startup Recall: при PRESET загружается Set 1' : 'Startup Recall выключен: PRESET даёт заводские настройки') }, on: startup },
+    ] }),
+    FSAVE: () => ({ title: 'Save', keys: [0, 1, 2, 3].map((i) => ({ label: `Set ${i + 1}${sets[i] ? ' ✓' : ''}`, act: () => { sets[i] = JSON.parse(JSON.stringify(s())); storeSets(); toast(`Настройки сохранены в Set ${i + 1} (без трасс)`) } })) }),
+    FRECALL: () => ({ title: 'Recall', keys: [0, 1, 2, 3].map((i) => ({ label: `Set ${i + 1}${sets[i] ? '' : ' (пусто)'}`, act: () => recallSet(i) })) }),
+    MODE: () => ({ title: 'Mode', keys: [
+      { label: 'Spectrum Analyzer', act: () => toast('Режим анализатора спектра уже выбран'), on: true },
+      { label: 'Другие режимы (K…)', act: () => toast('Режимы опций K7, K9, K30, K72, K91 в тренажёре не моделируются') },
+    ] }),
     SETUP: () => ({ title: 'Setup', keys: [
       { label: 'Service', sub: 'SERVICE' },
       { label: 'Reference Int/Ext', act: () => toast('Опорный сигнал: внутренний OCXO (в тренажёре внешний не подключён)') },
@@ -301,6 +322,33 @@ export function mountAnalyzer(root, opts = {}) {
     SERVICE: () => ({ title: 'Service', keys: [
       { label: `Input RF/Cal: ${s().input === 'cal' ? 'CAL' : 'RF'}`, act: () => a.change((x) => { x.input = x.input === 'cal' ? 'rf' : 'cal' }), on: s().input === 'cal' },
     ] }),
+  }
+
+  // ---------- линии и наборы настроек ----------
+  function lineKey(k, off) {
+    if (s()[k] != null && entry?.name === k) { a.change((x) => { x[k] = null }, true); closeEntry(); return }
+    if (s()[k] == null) a.change((x) => { x[k] = x.ref + off }, true)
+    openEntry(k)
+  }
+  const SETS_KEY = 'fsl18-sim-sets'
+  let sets = [null, null, null, null], startup = false
+  try { const v = JSON.parse(localStorage.getItem(SETS_KEY) || 'null'); if (v) { sets = v.sets || sets; startup = !!v.startup } } catch {}
+  function storeSets() { try { localStorage.setItem(SETS_KEY, JSON.stringify({ sets, startup })) } catch {} }
+  function recallSet(i) {
+    if (!sets[i]) return toast(`Set ${i + 1} пуст: сначала FILE → Save`)
+    const saved = JSON.parse(JSON.stringify(sets[i]))
+    a.change((x) => { Object.assign(x, saved) })
+    closeEntry()
+    toast(`Загружены настройки Set ${i + 1}`)
+  }
+  function printScreen() {
+    try {
+      const link = document.createElement('a')
+      link.download = 'FSL18_screen.png'
+      link.href = cv.toDataURL('image/png')
+      link.click()
+      toast('PRINT: снимок экрана сохранён в FSL18_screen.png')
+    } catch { toast('PRINT: браузер не разрешил сохранить снимок экрана') }
   }
 
   function ensureM1() { if (!s().markers[0].on) a.markerPeak(0) }
@@ -312,8 +360,15 @@ export function mountAnalyzer(root, opts = {}) {
     if (!m.on) {
       if (i > 0 && !s().markers[0].on) a.markerPeak(0)
       m.delta = i > 0
-      a.markerPeak(i)
-      if (i > 0) a.markerNextPeak(i)
+      if (i === 0) a.markerPeak(0)
+      else {
+        // дельта-маркер встаёт на самый высокий пик, кроме того, где стоит маркер 1
+        const ci = a.xToIndex(s().markers[0].x)
+        const p = a.peaks().find((q) => Math.abs(q.i - ci) > 2)
+        m.on = true
+        m.x = p ? a.indexToX(p.i) : s().markers[0].x
+        a.emit('marker')
+      }
     }
     openEntry('marker')
   }
@@ -345,6 +400,7 @@ export function mountAnalyzer(root, opts = {}) {
     if (push && menu) stack.push(menu)
     else if (!push) stack = []
     menu = name
+    if (name) lastMenu = name
     renderSoft()
   }
 
@@ -362,7 +418,15 @@ export function mountAnalyzer(root, opts = {}) {
 
   function hardKey(k) {
     switch (k) {
-      case 'PRESET': a.preset(); closeEntry(); showMenu(null); toast('PRESET: исходное состояние'); return
+      case 'PRESET':
+        a.preset(); closeEntry(); showMenu(null)
+        if (startup && sets[0]) { recallSet(0); toast('PRESET: загружен Set 1 (Startup Recall)') } else toast('PRESET: исходное состояние')
+        return
+      case 'FILE': showMenu('FILE'); closeEntry(); return
+      case 'PRINT': printScreen(); return
+      case 'MODE': showMenu('MODE'); closeEntry(); return
+      case 'LINES': showMenu('LINES'); closeEntry(); return
+      case 'MENU': showMenu(lastMenu || 'FREQ'); return
       case 'FREQ': showMenu('FREQ'); openEntry('center'); return
       case 'SPAN': showMenu('SPAN'); openEntry(a.zeroSpan ? 'swt' : 'span'); return
       case 'AMPT': showMenu('AMPT'); openEntry('ref'); return
@@ -539,6 +603,17 @@ export function mountAnalyzer(root, opts = {}) {
       ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([])
     }
 
+    // линии LINES
+    const hline = (v, color, dash, label) => {
+      if (v == null || v > st.ref || v < st.ref - st.range) return
+      const y = Math.round(yOf(v)) + 0.5
+      ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([])
+      ctx.fillStyle = color; ctx.font = '10px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'right'; ctx.fillText(label, x1 - 4, y + 3); ctx.textAlign = 'left'; ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'
+    }
+    hline(st.dl1, '#b388ff', [6, 4], 'D1')
+    hline(st.dl2, '#b388ff', [2, 3], 'D2')
+    hline(st.limit, '#ff5252', [], 'LIMIT')
+
     // трасса
     if (st.traceMode !== 'blank') {
       ctx.save()
@@ -630,6 +705,16 @@ export function mountAnalyzer(root, opts = {}) {
         ctx.fillStyle = '#9fd0ff'; ctx.fillText(r[0], x0 + 10, y1 - bh + i * 16)
         ctx.textAlign = 'right'; ctx.fillStyle = '#ffffff'; ctx.fillText(r[1], x0 + 228, y1 - bh + i * 16); ctx.textAlign = 'left'
       })
+    }
+
+    // проверка допуска
+    if (st.limit != null && st.traceMode !== 'blank') {
+      let fail = false
+      for (const v of a.trace) if (!isNaN(v) && v > st.limit) { fail = true; break }
+      ctx.font = 'bold 14px ui-monospace, Menlo, Consolas, monospace'
+      ctx.fillStyle = fail ? '#ff5252' : '#3fdc6a'
+      ctx.textAlign = 'right'; ctx.fillText(fail ? 'LIMIT CHECK: FAIL' : 'LIMIT CHECK: PASS', x1 - 6, y1 - 22); ctx.textAlign = 'left'
+      ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'
     }
 
     // подпись снизу

@@ -87,7 +87,7 @@ export const TASKS = [
       return { signals: [{ kind: 'cw', f, p: tx - 20 }], tx, f, text: 'Передатчик 1,8 ГГц подключён к анализатору через внешний аттенюатор 20 дБ.' }
     },
     goal: 'Настройте анализатор так, чтобы он сразу показывал мощность на выходе передатчика, без перегрузки, и измерьте её.',
-    hints: ['AMPT → More → Ref Level Offset = 20 dB.', 'Опорный уровень сдвинется вместе с поправкой. Если появится IFOVL, поднимите Ref Level выше уровня сигнала.', 'FREQ → 1.8 GHz, SPAN → 1 MHz, MKR.'],
+    hints: ['AMPT → Ref Level Offset = 20 dB.', 'Опорный уровень сдвинется вместе с поправкой. Если появится IFOVL, поднимите Ref Level выше уровня сигнала.', 'FREQ → 1.8 GHz, SPAN → 1 MHz, MKR.'],
     fields: [{ key: 'p', label: 'Мощность передатчика, дБм' }],
     check(a, ans, x) {
       const st = a.status()
