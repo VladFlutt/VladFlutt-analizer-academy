@@ -3,6 +3,7 @@ import { renderMarkdown, splitLessons } from './md.js'
 import { TASKS, TASK_BY_ID } from './tasks.js'
 import { Analyzer, fmtFreq } from './analyzer.js'
 import { mountAnalyzer } from './panel.js'
+import { initTutor, tutorSync, taskReview, quizExplain } from './ai.js'
 import { GLOSSARY, annotate, initTooltips } from './glossary.js'
 
 const root = document.getElementById('root')
@@ -230,6 +231,7 @@ function bindTask(el, t, sim, { onResult, exam = false } = {}) {
     sim.analyzer.setSignals(setup.signals)
     condEl.innerHTML = `<b>Условие:</b> ${esc(setup.text)}`
     checksEl.innerHTML = ''
+    el.querySelector('.ai-inline')?.remove()
     el.querySelector('form').reset()
     if (!exam) annotate(el.querySelector('.tp-info'))
   }
@@ -244,6 +246,8 @@ function bindTask(el, t, sim, { onResult, exam = false } = {}) {
     const ok = items.every((x) => x.ok)
     checksEl.innerHTML = items.map((x) => `<li class="${x.ok ? 'good' : 'bad'}">${x.ok ? '✓' : '✗'} ${esc(x.text)}</li>`).join('') +
       `<li class="verdict ${ok ? 'good' : 'bad'}">${ok ? 'Задание выполнено!' : 'Пока не всё верно. Исправьте настройки или ответ и проверьте снова.'}</li>`
+    if (!exam && !ok) taskReview(el.querySelector('.tp-ans'), t, items, ans, sim.analyzer, condEl.textContent)
+    else el.querySelector('.ai-inline')?.remove()
     onResult?.(ok, items)
   })
 }
@@ -311,7 +315,7 @@ function simPage() {
       <div><b>Мощность канала</b><br>MEAS → CP → Channel Bandwidth → Adjust Settings</div>
       <div><b>Точная частота</b><br>MKR → Sig Count On</div>
     </div>
-    <p class="muted small">В тренажёре установлены опции B7 (узкие RBW от 10 Гц) и B22 (предусилитель). Доступна трасса 1. Клавиши FILE, PRINT, MODE, LINES и MENU не задействованы.</p>
+    <p class="muted small">В тренажёре установлены опции B7 (узкие RBW от 10 Гц) и B22 (предусилитель). Доступна трасса 1.</p>
   </div>`)
 }
 
@@ -520,6 +524,7 @@ async function render() {
   if (!(page === 'exam' && exam && !exam.finished)) window.scrollTo(0, 0)
   if (page === 'glossary' && a) document.getElementById('g-' + a)?.scrollIntoView({ block: 'center' })
   bind(page)
+  tutorSync()
 }
 
 function bind(page) {
@@ -549,6 +554,11 @@ function bind(page) {
       ev.preventDefault()
       const { mod, qs } = window.__quiz
       const ok = gradeQuestions(form, qs)
+      form.querySelectorAll('.ai-inline').forEach((x) => x.remove())
+      qs.forEach((q, n) => {
+        const v = form.querySelector(`input[name="q${n}"]:checked`)
+        if (!v || +v.value !== q.a) quizExplain(form.querySelector(`fieldset[data-n="${n}"]`), q, v ? +v.value : null)
+      })
       const pct = Math.round(ok / qs.length * 100)
       store.data.quiz[mod.id] = Math.max(store.data.quiz[mod.id] || 0, pct)
       store.save()
@@ -570,6 +580,7 @@ function bind(page) {
 
 addEventListener('hashchange', render)
 initTooltips()
+initTutor()
 render()
 
 // для отладки в консоли
